@@ -21,7 +21,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     collection_entries = db.relationship("CollectionEntry", backref="user", lazy=True)
-
+    
     def to_dict(self):
         return {"id": self.id, "username": self.username, "email": self.email}
 
@@ -36,8 +36,8 @@ class Film(db.Model):
     genre = db.Column(db.String(100), nullable=True)
     poster_url = db.Column(db.String(500), nullable=True)
     average_rating = db.Column(db.Float, default=0.0)
-
     collection_entries = db.relationship("CollectionEntry", backref="film", lazy=True)
+    watchlist_entries = db.relationship("WatchlistEntry", backref="film", lazy=True)
 
     def to_dict(self):
         return {
