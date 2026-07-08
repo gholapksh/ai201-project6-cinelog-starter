@@ -1,4 +1,4 @@
-"""
+﻿"""
 tests/test_watchlist.py — CineLog (feature/watchlist branch)
 
 Tests for the watchlist service, following the same patterns established
@@ -50,7 +50,7 @@ def sample_film(app):
         return film.id
 
 
-# ── Basic add ───────────────────────────────────────────────────────────────
+# -- Basic add --------------------------------------------------------------
 
 def test_add_to_watchlist_creates_entry(app, sample_user, sample_film):
     """
@@ -63,14 +63,13 @@ def test_add_to_watchlist_creates_entry(app, sample_user, sample_film):
         assert entry.user_id == sample_user
         assert entry.film_id == sample_film
 
-        # Verify it persisted
         in_db = WatchlistEntry.query.filter_by(
             user_id=sample_user, film_id=sample_film
         ).first()
         assert in_db is not None
 
 
-# ── Deduplication ────────────────────────────────────────────────────────────
+# -- Deduplication ------------------------------------------------------------
 
 def test_add_to_watchlist_duplicate_raises(app, sample_user, sample_film):
     """
@@ -83,14 +82,13 @@ def test_add_to_watchlist_duplicate_raises(app, sample_user, sample_film):
         with pytest.raises(AlreadyInWatchlistError):
             add_to_watchlist(user_id=sample_user, film_id=sample_film)
 
-        # Confirm only one entry exists
         count = WatchlistEntry.query.filter_by(
             user_id=sample_user, film_id=sample_film
         ).count()
         assert count == 1
 
 
-# ── Nonexistent film ─────────────────────────────────────────────────────────
+# -- Nonexistent film ---------------------------------------------------------
 
 def test_add_to_watchlist_nonexistent_film_raises(app, sample_user):
     """
@@ -102,35 +100,9 @@ def test_add_to_watchlist_nonexistent_film_raises(app, sample_user):
 
         with pytest.raises(FilmNotFoundError):
             add_to_watchlist(user_id=sample_user, film_id=fake_film_id)
-def test_get_watchlist_returns_newest_first(app, sample_user):
-    """
-    get_watchlist() should return films sorted by date_added descending
-    (most recently added first), consistent with get_collection().
-    """
-    with app.app_context():
-        from datetime import datetime, timezone, timedelta
 
-        film_a = Film(title="Alien", year=1979, genre="Horror")
-        film_b = Film(title="Blade Runner", year=1982, genre="Sci-Fi")
-        db.session.add_all([film_a, film_b])
-        db.session.commit()
 
-        earlier = datetime.now(timezone.utc) - timedelta(days=5)
-        later = datetime.now(timezone.utc)
-
-        entry_a = WatchlistEntry(user_id=sample_user, film_id=film_a.id, date_added=earlier)
-        entry_b = WatchlistEntry(user_id=sample_user, film_id=film_b.id, date_added=later)
-        db.session.add_all([entry_a, entry_b])
-        db.session.commit()
-
-        watchlist = get_watchlist(sample_user)
-        titles = [f["title"] for f in watchlist]
-
-        assert titles[0] == "Blade Runner"
-        assert titles[1] == "Alien"
-        with pytest.raises(FilmNotFoundError):
-            add_to_watchlist(user_id=sample_user, film_id=fake_film_id)
-# ── Sort order ────────────────────────────────────────────────────────────────
+# -- Sort order ----------------------------------------------------------------
 
 def test_get_watchlist_returns_newest_first(app, sample_user):
     """
