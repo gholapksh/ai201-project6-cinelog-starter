@@ -1,7 +1,14 @@
 ﻿# PR Response Doc — CineLog Watchlist Feature
 
 ## AI Usage
-<!-- To be filled in at the end -->
+I used Claude throughout this project in several ways:
+- **Codebase orientation**: Before touching any review comments, I had Claude walk through `add_to_collection()` and `test_collection.py` to understand the project's existing patterns (verb_to_noun naming, the exception-per-condition style, the fixture structure) before writing my own equivalents for the watchlist feature.
+- **Drafting the dedup logic (Comment 2)**: I gave Claude both `add_to_watchlist()` and `add_to_collection()` and asked it to mirror the existing pattern rather than invent a new one. I reviewed the result against `add_to_collection()` line by line before using it.
+- **Stress-testing Comments 4 and 5**: For the default-visibility and sort-order design decisions, I drafted my own position first, then used Claude as a devil's advocate to check for tradeoffs I hadn't considered. For Comment 5 specifically, this is how I caught the internal-consistency argument (that `get_collection()` already sorts by `date_added.desc()`) that ended up changing my position from alphabetical to date-added.
+- **Debugging the rebase (Comment 6)**: This was the most involved use of AI in the project. `git rebase origin/main` and `git merge origin/main` both silently produced a broken `models.py` (dropping the `WatchlistEntry` class while leaving a dangling relationship reference) without ever flagging a real conflict. I used Claude to help diagnose this by comparing file states before and after each attempt, and ultimately to help me manually rewrite `models.py` correctly once I stopped trusting git's automatic resolution. This also surfaced a separate real bug (a missing `Film`-to-`WatchlistEntry` relationship) that had nothing to do with the rebase itself.
+- **Commit history cleanup**: Used `git rebase -i` with Claude's guidance to reword and squash commits into conventional format. This step hit several tooling issues along the way (a corrupted `reword` line in the rebase todo file, notepad silently failing to save edits), which we worked around by simplifying the rebase plan rather than fighting the tooling further.
+
+I verified all AI-suggested code and reasoning against the actual codebase and test results rather than trusting it directly — several of the debugging steps above exist specifically because an assumption (a clean rebase, a saved file) turned out to be wrong and had to be caught by re-checking.
 
 ## Comment 1 — Rename
 **What I did:** Renamed `save_to_watchlist()` to `add_to_watchlist()` in `services/watchlist_service.py` to match the project's `verb_to_noun` naming convention (consistent with `add_to_collection()`). Updated the import and call site in `routes/watchlist/watchlist.py`.
@@ -30,7 +37,39 @@
 ## Comment 6 — Rebase
 **What conflicted:** While `feature/watchlist` was open, `main` merged a refactor migrating `Film.id` from an auto-incrementing integer to a UUID string (`db.String(36)`), and updated `CollectionEntry.film_id` to match. `WatchlistEntry` did not exist on `main` at all, so it never received the same treatment — my branch's `WatchlistEntry.film_id` was still typed as `db.Integer`, which no longer matched `Film.id`'s new type.
 **How I resolved it:** `git rebase origin/main` and `git merge origin/main` both completed without flagging a textual conflict in `models.py` — but silently produced an incorrect result each time, dropping the entire `WatchlistEntry` class definition while leaving a dangling `Film.watchlist_entries` relationship pointing at nothing. I verified this by checking for `WatchlistEntry` in `models.py` after each attempt rather than trusting a clean "Successfully rebased" message. After confirming the automatic resolution was unreliable, I manually rewrote `models.py` to restore the `WatchlistEntry` class with `film_id` correctly typed as `db.String(36), db.ForeignKey("film.id")`, matching the pattern already used for `CollectionEntry.film_id`.
-**How I verified no conflict remains:** Ran `pytest tests/ -v` after the manual fix — all 8 tests pass, including `test_add_to_watchlist_creates_entry`, `test_add_to_watchlist_duplicate_raises`, and both nonexistent-film and sort-order tests, confirming the model change did not break dedup, creation, or ordering logic. Confirmed `git log --oneline` shows a single linear history with no merge commits.
+**How I verified no conflict remains:** Ran `pytest tests/ -v` after the manual fix — all 8 tests pass, including `test_add_to_watchlist_creates_entry`, `test_add_to_watchlist_duplicate_raises`, and both nonexistent-film and sort-order tests, confirming the model change did not break dedup, creation, or ordering logic. Confirmed `git log --oneline` shows a single linear history with no merge commits (screenshot below).
+
+**git log --oneline screenshot:**
+<!-- Paste your screenshot here -->
 
 ## PR Description
-<!-- To be filled in at the end -->
+### Overview
+Adds a watchlist feature so users can save films they want to watch, following the existing patterns established by the collection feature (`CollectionEntry`/`collection_service.py`).
+
+- New `WatchlistEntry` model with `user_id`, `film_id`, `date_added`, and `public` fields
+- `add_to_watchlist(user_id, film_id)` — creates an entry, raises `FilmNotFoundError` if the film does not exist, and raises `AlreadyInWatchlistError` if the film is already on the user's watchlist
+- `get_watchlist(user_id)` — returns the user's watchlist sorted by date added (newest first)
+- REST endpoints: `GET /watchlist/<user_id>` and `POST /watchlist/<user_id>/add`
+
+### Changes made in response to review
+1. **Rename** — `save_to_watchlist()` renamed to `add_to_watchlist()` to match the project's `verb_to_noun` naming convention.
+2. **Deduplication** — `add_to_watchlist()` now checks for an existing entry before inserting and raises `AlreadyInWatchlistError` on duplicates, mirroring `add_to_collection()`.
+3. **Test coverage** — added `tests/test_watchlist.py` covering creation, duplicates, nonexistent films, and sort order.
+4. **Default visibility (design decision)** — kept `public=True` as the default. CineLog's value depends on watchlists being visible enough for discovery to happen; most users never change defaults, so defaulting to private would leave the social graph empty. See Comment 4 above for full reasoning and acknowledged tradeoff.
+5. **Sort order (design decision)** — switched from alphabetical to date-added descending, matching the reviewer's preference and `get_collection()`'s existing sort order for consistency. See Comment 5 above for full reasoning, including a relationship bug this change surfaced and fixed.
+6. **Rebase** — rebased onto `main` after the `Film.id` integer-to-UUID refactor; updated `WatchlistEntry.film_id` to `db.String(36)` to match.
+
+### How to test manually
+1. Install dependencies and start the app:
+   - `pip install -r requirements.txt`
+   - `python app.py`
+2. Run the automated test suite:
+   - `pytest tests/ -v`
+   - All 8 tests should pass.
+3. Manually exercise the endpoints (requires an existing `user_id` and `film_id` in the database):
+   - `POST /watchlist/<user_id>/add` with body `{"film_id": "<uuid>"}`
+     - First call: returns `201` with the new entry.
+     - Second call with the same film: returns `409` with an `AlreadyInWatchlistError` message.
+     - Call with a nonexistent `film_id`: returns `404`.
+   - `GET /watchlist/<user_id>`
+     - Returns the user's watchlist as a list of film dicts, sorted newest-added first.
